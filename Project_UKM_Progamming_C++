@@ -1,0 +1,780 @@
+/**
+ * Tic Tac Toe Game - C++ OOP Implementation
+ * Single File Version for OnlineGDB
+ * 
+ * Copy-paste seluruh file ini ke OnlineGDB dan klik Run!
+ */
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include <map>
+#include <memory>
+#include <algorithm>
+#include <random>
+#include <chrono>
+#include <limits>
+#include <iomanip>
+#include <sstream>
+#include <thread>
+
+namespace TicTacToe {
+    
+    // ==================== ENUMS & CONSTANTS ====================
+    enum class Player {
+        NONE,
+        HUMAN,
+        AI
+    };
+
+    enum class GameState {
+        ONGOING,
+        WIN,
+        DRAW
+    };
+
+    enum class Difficulty {
+        EASY,
+        MEDIUM,
+        HARD,
+        IMPOSSIBLE
+    };
+
+    enum class GameMode {
+        PVP,
+        PVE
+    };
+
+    const char SYMBOL_X = 'X';
+    const char SYMBOL_O = 'O';
+    const char SYMBOL_EMPTY = ' ';
+    const int DEFAULT_BOARD_SIZE = 3;
+    const int DEFAULT_WIN_LENGTH = 3;
+    const int MIN_BOARD_SIZE = 3;
+    const int MAX_BOARD_SIZE = 6;
+    const int WIN_SCORE = 10;
+    const int MAX_DEPTH = 6;
+    const int ALPHA_INIT = -10000;
+    const int BETA_INIT = 10000;
+
+    std::string difficultyToString(Difficulty diff) {
+        switch(diff) {
+            case Difficulty::EASY: return "Easy";
+            case Difficulty::MEDIUM: return "Medium";
+            case Difficulty::HARD: return "Hard";
+            case Difficulty::IMPOSSIBLE: return "Impossible";
+            default: return "Unknown";
+        }
+    }
+
+    char getPlayerSymbol(Player player) {
+        return (player == Player::HUMAN) ? SYMBOL_X : SYMBOL_O;
+    }
+
+    // ==================== MOVE CLASS ====================
+    class Move {
+    public:
+        int position;
+        Player player;
+        int moveNumber;
+
+        Move(int pos, Player p, int num) 
+            : position(pos), player(p), moveNumber(num) {}
+    };
+
+    // ==================== BOARD CLASS ====================
+    class Board {
+    private:
+        int size;
+        int winLength;
+        std::vector<char> cells;
+        std::vector<Move> moveHistory;
+        int moveCount;
+
+        void initializeBoard() {
+            cells.clear();
+            cells.resize(size * size, SYMBOL_EMPTY);
+            moveHistory.clear();
+            moveCount = 0;
+        }
+
+    public:
+        Board(int boardSize = DEFAULT_BOARD_SIZE, int winLen = DEFAULT_WIN_LENGTH) 
+            : size(boardSize), winLength(winLen), moveCount(0) {
+            initializeBoard();
+        }
+
+        Board(const Board& other) 
+            : size(other.size), 
+              winLength(other.winLength),
+              cells(other.cells),
+              moveHistory(other.moveHistory),
+              moveCount(other.moveCount) {}
+
+        bool isValidMove(int position) const {
+            return position >= 0 && position < size * size && cells[position] == SYMBOL_EMPTY;
+        }
+
+        bool makeMove(int position, char symbol) {
+            if (!isValidMove(position)) {
+                return false;
+            }
+
+            cells[position] = symbol;
+            Player player = (symbol == SYMBOL_X) ? Player::HUMAN : Player::AI;
+            moveHistory.emplace_back(position, player, ++moveCount);
+            return true;
+        }
+
+        void undoMove() {
+            if (moveHistory.empty()) {
+                return;
+            }
+
+            const Move& lastMove = moveHistory.back();
+            cells[lastMove.position] = SYMBOL_EMPTY;
+            moveHistory.pop_back();
+            moveCount--;
+        }
+
+        void reset() {
+            initializeBoard();
+        }
+
+        bool hasWinner() const {
+            // Check rows
+            for (int row = 0; row < size; row++) {
+                for (int col = 0; col <= size - winLength; col++) {
+                    char first = cells[row * size + col];
+                    if (first == SYMBOL_EMPTY) continue;
+
+                    bool win = true;
+                    for (int k = 1; k < winLength; k++) {
+                        if (cells[row * size + col + k] != first) {
+                            win = false;
+                            break;
+                        }
+                    }
+                    if (win) return true;
+                }
+            }
+
+            // Check columns
+            for (int col = 0; col < size; col++) {
+                for (int row = 0; row <= size - winLength; row++) {
+                    char first = cells[row * size + col];
+                    if (first == SYMBOL_EMPTY) continue;
+
+                    bool win = true;
+                    for (int k = 1; k < winLength; k++) {
+                        if (cells[(row + k) * size + col] != first) {
+                            win = false;
+                            break;
+                        }
+                    }
+                    if (win) return true;
+                }
+            }
+
+            // Check diagonals (top-left to bottom-right)
+            for (int row = 0; row <= size - winLength; row++) {
+                for (int col = 0; col <= size - winLength; col++) {
+                    char first = cells[row * size + col];
+                    if (first == SYMBOL_EMPTY) continue;
+
+                    bool win = true;
+                    for (int k = 1; k < winLength; k++) {
+                        if (cells[(row + k) * size + (col + k)] != first) {
+                            win = false;
+                            break;
+                        }
+                    }
+                    if (win) return true;
+                }
+            }
+
+            // Check diagonals (top-right to bottom-left)
+            for (int row = 0; row <= size - winLength; row++) {
+                for (int col = winLength - 1; col < size; col++) {
+                    char first = cells[row * size + col];
+                    if (first == SYMBOL_EMPTY) continue;
+
+                    bool win = true;
+                    for (int k = 1; k < winLength; k++) {
+                        if (cells[(row + k) * size + (col - k)] != first) {
+                            win = false;
+                            break;
+                        }
+                    }
+                    if (win) return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool isFull() const {
+            for (char cell : cells) {
+                if (cell == SYMBOL_EMPTY) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        std::vector<int> getAvailableMoves() const {
+            std::vector<int> moves;
+            for (int i = 0; i < size * size; i++) {
+                if (cells[i] == SYMBOL_EMPTY) {
+                    moves.push_back(i);
+                }
+            }
+            return moves;
+        }
+
+        char getCell(int position) const {
+            if (position < 0 || position >= size * size) {
+                return SYMBOL_EMPTY;
+            }
+            return cells[position];
+        }
+
+        void display() const {
+            std::cout << "\n";
+            
+            // Print column numbers
+            std::cout << "   ";
+            for (int col = 0; col < size; col++) {
+                std::cout << std::setw(4) << col;
+            }
+            std::cout << "\n";
+
+            // Print top border
+            std::cout << "   +" << std::string(size * 4 - 1, '-') << "+\n";
+
+            // Print rows
+            for (int row = 0; row < size; row++) {
+                std::cout << std::setw(2) << row << " |";
+                for (int col = 0; col < size; col++) {
+                    std::cout << " " << cells[row * size + col] << " ";
+                    if (col < size - 1) std::cout << "|";
+                }
+                std::cout << " |\n";
+                
+                if (row < size - 1) {
+                    std::cout << "   |" << std::string(size * 4 - 1, '-') << "|\n";
+                }
+            }
+
+            // Print bottom border
+            std::cout << "   +" << std::string(size * 4 - 1, '-') << "+\n";
+            std::cout << "\n";
+        }
+
+        Board clone() const {
+            return Board(*this);
+        }
+
+        int getSize() const { return size; }
+        int getWinLength() const { return winLength; }
+        const std::vector<Move>& getMoveHistory() const { return moveHistory; }
+        int getMoveCount() const { return moveCount; }
+    };
+
+    // ==================== AI CLASS ====================
+    class AI {
+    private:
+        Difficulty difficulty;
+
+        int minimax(Board& board, int depth, bool isMaximizing, int alpha, int beta) {
+            if (board.hasWinner()) {
+                return isMaximizing ? (-WIN_SCORE + depth) : (WIN_SCORE - depth);
+            }
+            if (board.isFull()) {
+                return 0;
+            }
+            if (depth > MAX_DEPTH) {
+                return 0;
+            }
+
+            std::vector<int> moves = board.getAvailableMoves();
+
+            if (isMaximizing) {
+                int maxEval = ALPHA_INIT;
+                
+                for (int move : moves) {
+                    board.makeMove(move, SYMBOL_O);
+                    int eval = minimax(board, depth + 1, false, alpha, beta);
+                    board.undoMove();
+                    
+                    maxEval = std::max(maxEval, eval);
+                    alpha = std::max(alpha, eval);
+                    
+                    if (beta <= alpha) {
+                        break;
+                    }
+                }
+                return maxEval;
+            } else {
+                int minEval = BETA_INIT;
+                
+                for (int move : moves) {
+                    board.makeMove(move, SYMBOL_X);
+                    int eval = minimax(board, depth + 1, true, alpha, beta);
+                    board.undoMove();
+                    
+                    minEval = std::min(minEval, eval);
+                    beta = std::min(beta, eval);
+                    
+                    if (beta <= alpha) {
+                        break;
+                    }
+                }
+                return minEval;
+            }
+        }
+
+        int getRandomMove(const std::vector<int>& moves) {
+            if (moves.empty()) {
+                return -1;
+            }
+
+            static std::random_device rd;
+            static std::mt19937 gen(rd());
+            std::uniform_int_distribution<> dis(0, moves.size() - 1);
+            
+            return moves[dis(gen)];
+        }
+
+        int getMinimaxMove(Board& board) {
+            std::vector<int> moves = board.getAvailableMoves();
+            if (moves.empty()) {
+                return -1;
+            }
+
+            int bestMove = -1;
+            int bestValue = ALPHA_INIT;
+
+            for (int move : moves) {
+                Board clonedBoard = board.clone();
+                clonedBoard.makeMove(move, SYMBOL_O);
+                
+                int moveValue = minimax(clonedBoard, 0, false, ALPHA_INIT, BETA_INIT);
+
+                if (moveValue > bestValue) {
+                    bestValue = moveValue;
+                    bestMove = move;
+                }
+            }
+
+            return bestMove;
+        }
+
+    public:
+        explicit AI(Difficulty diff = Difficulty::MEDIUM) : difficulty(diff) {}
+
+        int getBestMove(Board& board) {
+            std::vector<int> moves = board.getAvailableMoves();
+            if (moves.empty()) {
+                return -1;
+            }
+
+            switch (difficulty) {
+                case Difficulty::EASY:
+                    return getRandomMove(moves);
+
+                case Difficulty::MEDIUM:
+                    {
+                        static std::random_device rd;
+                        static std::mt19937 gen(rd());
+                        std::uniform_real_distribution<> dis(0.0, 1.0);
+                        
+                        if (dis(gen) < 0.5) {
+                            return getRandomMove(moves);
+                        }
+                        return getMinimaxMove(board);
+                    }
+
+                case Difficulty::HARD:
+                case Difficulty::IMPOSSIBLE:
+                    return getMinimaxMove(board);
+
+                default:
+                    return moves[0];
+            }
+        }
+
+        Difficulty getDifficulty() const { return difficulty; }
+        void setDifficulty(Difficulty diff) { difficulty = diff; }
+    };
+
+    // ==================== GAME CLASS ====================
+    class Game {
+    private:
+        Board board;
+        Player currentPlayer;
+        GameState gameState;
+        GameMode mode;
+        std::unique_ptr<AI> ai;
+        std::map<Player, int> scores;
+        int drawCount;
+        int boardSize;
+        int winLength;
+        Difficulty aiDifficulty;
+
+        void initializeGame() {
+            board = Board(boardSize, winLength);
+            currentPlayer = Player::HUMAN;
+            gameState = GameState::ONGOING;
+        }
+
+        void switchPlayer() {
+            currentPlayer = (currentPlayer == Player::HUMAN) ? Player::AI : Player::HUMAN;
+        }
+
+        GameState checkGameState() {
+            if (board.hasWinner()) {
+                return GameState::WIN;
+            }
+            if (board.isFull()) {
+                return GameState::DRAW;
+            }
+            return GameState::ONGOING;
+        }
+
+        void updateScores() {
+            if (gameState == GameState::WIN) {
+                scores[currentPlayer]++;
+            } else if (gameState == GameState::DRAW) {
+                drawCount++;
+            }
+        }
+
+        void displayGameStatus() const {
+            std::cout << "\n";
+            std::cout << "========================================\n";
+            std::cout << "         TIC TAC TOE - C++ OOP         \n";
+            std::cout << "========================================\n";
+            
+            if (mode == GameMode::PVP) {
+                std::cout << "Mode: Player vs Player\n";
+            } else {
+                std::cout << "Mode: Player vs AI (" << difficultyToString(aiDifficulty) << ")\n";
+            }
+            
+            std::cout << "Board Size: " << boardSize << "x" << boardSize << "\n";
+            std::cout << "Win Length: " << winLength << "\n";
+            std::cout << "========================================\n\n";
+        }
+
+        void displayScores() const {
+            std::cout << "\n========== SCORES ==========\n";
+            std::cout << "Player X: " << scores.at(Player::HUMAN) << "\n";
+            
+            if (mode == GameMode::PVP) {
+                std::cout << "Player O: " << scores.at(Player::AI) << "\n";
+            } else {
+                std::cout << "AI (O):   " << scores.at(Player::AI) << "\n";
+            }
+            
+            std::cout << "Draws:    " << drawCount << "\n";
+            std::cout << "============================\n\n";
+        }
+
+        void displayMenu() const {
+            std::cout << "\n========================================\n";
+            std::cout << "              MAIN MENU                 \n";
+            std::cout << "========================================\n";
+            std::cout << "1. Player vs Player\n";
+            std::cout << "2. Player vs AI\n";
+            std::cout << "3. Settings\n";
+            std::cout << "4. Exit\n";
+            std::cout << "========================================\n";
+            std::cout << "Choose option: ";
+        }
+
+        void displayDifficultyMenu() const {
+            std::cout << "\n========================================\n";
+            std::cout << "         SELECT AI DIFFICULTY           \n";
+            std::cout << "========================================\n";
+            std::cout << "1. Easy\n";
+            std::cout << "2. Medium\n";
+            std::cout << "3. Hard\n";
+            std::cout << "4. Impossible\n";
+            std::cout << "========================================\n";
+            std::cout << "Choose difficulty: ";
+        }
+
+        bool processPlayerMove(int position) {
+            char symbol = getPlayerSymbol(currentPlayer);
+            
+            if (board.makeMove(position, symbol)) {
+                gameState = checkGameState();
+                
+                if (gameState != GameState::ONGOING) {
+                    updateScores();
+                    return true;
+                }
+                
+                switchPlayer();
+                return true;
+            }
+            
+            return false;
+        }
+
+        void processAIMove() {
+            std::cout << "\nAI is thinking...\n";
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            
+            int aiMove = ai->getBestMove(board);
+            
+            if (aiMove != -1) {
+                std::cout << "AI chose position: " << aiMove << "\n";
+                processPlayerMove(aiMove);
+            }
+        }
+
+        int getPlayerInput() {
+            int position;
+            
+            while (true) {
+                std::cout << "Enter position (0-" << (boardSize * boardSize - 1) << "): ";
+                
+                if (std::cin >> position) {
+                    if (board.isValidMove(position)) {
+                        return position;
+                    } else {
+                        std::cout << "Invalid move! Position already taken or out of range.\n";
+                    }
+                } else {
+                    std::cout << "Invalid input! Please enter a number.\n";
+                    std::cin.clear();
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                }
+            }
+        }
+
+        GameMode selectGameMode() {
+            displayMenu();
+            int choice;
+            std::cin >> choice;
+            
+            switch (choice) {
+                case 1: return GameMode::PVP;
+                case 2: return GameMode::PVE;
+                case 3: 
+                    showSettings();
+                    return selectGameMode();
+                case 4:
+                    std::cout << "\nThanks for playing! Goodbye!\n";
+                    exit(0);
+                default:
+                    std::cout << "Invalid choice! Try again.\n";
+                    return selectGameMode();
+            }
+        }
+
+        Difficulty selectDifficulty() {
+            displayDifficultyMenu();
+            int choice;
+            std::cin >> choice;
+            
+            switch (choice) {
+                case 1: return Difficulty::EASY;
+                case 2: return Difficulty::MEDIUM;
+                case 3: return Difficulty::HARD;
+                case 4: return Difficulty::IMPOSSIBLE;
+                default:
+                    std::cout << "Invalid choice! Defaulting to Medium.\n";
+                    return Difficulty::MEDIUM;
+            }
+        }
+
+        void showSettings() {
+            std::cout << "\n========================================\n";
+            std::cout << "              SETTINGS                  \n";
+            std::cout << "========================================\n";
+            std::cout << "1. Change Board Size (Current: " << boardSize << "x" << boardSize << ")\n";
+            std::cout << "2. Change Win Length (Current: " << winLength << ")\n";
+            std::cout << "3. Change AI Difficulty (Current: " << difficultyToString(aiDifficulty) << ")\n";
+            std::cout << "4. Reset Scores\n";
+            std::cout << "5. Back to Main Menu\n";
+            std::cout << "========================================\n";
+            std::cout << "Choose option: ";
+            
+            int choice;
+            std::cin >> choice;
+            
+            switch (choice) {
+                case 1: {
+                    std::cout << "Enter new board size (" << MIN_BOARD_SIZE << "-" << MAX_BOARD_SIZE << "): ";
+                    int size;
+                    std::cin >> size;
+                    if (size >= MIN_BOARD_SIZE && size <= MAX_BOARD_SIZE) {
+                        boardSize = size;
+                        if (winLength > boardSize) {
+                            winLength = boardSize;
+                        }
+                        std::cout << "Board size updated to " << boardSize << "x" << boardSize << "\n";
+                    } else {
+                        std::cout << "Invalid size!\n";
+                    }
+                    showSettings();
+                    break;
+                }
+                case 2: {
+                    std::cout << "Enter new win length (3-" << boardSize << "): ";
+                    int len;
+                    std::cin >> len;
+                    if (len >= 3 && len <= boardSize) {
+                        winLength = len;
+                        std::cout << "Win length updated to " << winLength << "\n";
+                    } else {
+                        std::cout << "Invalid length!\n";
+                    }
+                    showSettings();
+                    break;
+                }
+                case 3: {
+                    aiDifficulty = selectDifficulty();
+                    std::cout << "AI difficulty updated to " << difficultyToString(aiDifficulty) << "\n";
+                    showSettings();
+                    break;
+                }
+                case 4: {
+                    scores[Player::HUMAN] = 0;
+                    scores[Player::AI] = 0;
+                    drawCount = 0;
+                    std::cout << "Scores reset!\n";
+                    showSettings();
+                    break;
+                }
+                case 5:
+                    return;
+                default:
+                    std::cout << "Invalid choice!\n";
+                    showSettings();
+            }
+        }
+
+        void resetGame() {
+            initializeGame();
+        }
+
+        void playGame() {
+            displayGameStatus();
+            
+            while (gameState == GameState::ONGOING) {
+                board.display();
+                displayScores();
+                
+                if (currentPlayer == Player::HUMAN) {
+                    std::cout << "\nPlayer " << getPlayerSymbol(currentPlayer) << "'s turn\n";
+                    int position = getPlayerInput();
+                    processPlayerMove(position);
+                } else {
+                    if (mode == GameMode::PVE) {
+                        processAIMove();
+                    } else {
+                        std::cout << "\nPlayer " << getPlayerSymbol(currentPlayer) << "'s turn\n";
+                        int position = getPlayerInput();
+                        processPlayerMove(position);
+                    }
+                }
+            }
+            
+            board.display();
+            displayScores();
+            
+            std::cout << "\n========================================\n";
+            if (gameState == GameState::WIN) {
+                Player winner = currentPlayer;
+                char winnerSymbol = getPlayerSymbol(winner);
+                
+                if (mode == GameMode::PVP) {
+                    std::cout << "        Player " << winnerSymbol << " WINS!        \n";
+                } else {
+                    if (winner == Player::HUMAN) {
+                        std::cout << "     CONGRATULATIONS! YOU WIN!     \n";
+                    } else {
+                        std::cout << "          AI WINS!                \n";
+                    }
+                }
+            } else {
+                std::cout << "           IT'S A DRAW!             \n";
+            }
+            std::cout << "========================================\n\n";
+            
+            std::cout << "Play again? (y/n): ";
+            char playAgain;
+            std::cin >> playAgain;
+            
+            if (playAgain == 'y' || playAgain == 'Y') {
+                resetGame();
+                playGame();
+            }
+        }
+
+        void startPVPGame() {
+            mode = GameMode::PVP;
+            ai.reset();
+            resetGame();
+            playGame();
+        }
+
+        void startPVEGame() {
+            mode = GameMode::PVE;
+            aiDifficulty = selectDifficulty();
+            ai.reset(new AI(aiDifficulty));
+            resetGame();
+            playGame();
+        }
+
+    public:
+        Game() 
+            : board(DEFAULT_BOARD_SIZE, DEFAULT_WIN_LENGTH),
+              currentPlayer(Player::HUMAN),
+              gameState(GameState::ONGOING),
+              mode(GameMode::PVP),
+              drawCount(0),
+              boardSize(DEFAULT_BOARD_SIZE),
+              winLength(DEFAULT_WIN_LENGTH),
+              aiDifficulty(Difficulty::MEDIUM) {
+            
+            scores[Player::HUMAN] = 0;
+            scores[Player::AI] = 0;
+        }
+
+        void run() {
+            std::cout << "\n";
+            std::cout << "========================================\n";
+            std::cout << "    WELCOME TO TIC TAC TOE - C++ OOP   \n";
+            std::cout << "========================================\n\n";
+            
+            while (true) {
+                GameMode selectedMode = selectGameMode();
+                
+                if (selectedMode == GameMode::PVP) {
+                    startPVPGame();
+                } else {
+                    startPVEGame();
+                }
+            }
+        }
+    };
+
+} // namespace TicTacToe
+
+// ==================== MAIN ====================
+int main() {
+    try {
+        TicTacToe::Game game;
+        game.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+    
+    return 0;
+}
